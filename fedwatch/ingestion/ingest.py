@@ -122,9 +122,11 @@ def load_all_contracts(
     oi_low_confidence_threshold: int = DEFAULT_OI_LOW_CONFIDENCE_THRESHOLD,
 ) -> pd.DataFrame:
     """Läser samtliga ZQ*.csv-filer i data_dir till en sammanslagen DataFrame."""
-    files = sorted(data_dir.glob("ZQ*.csv"))
+    # glob är skiftlägeskänsligt på Linux, och några filer i Data/ har .CSV
+    # (versaler) — matcha alla ZQ*.csv/.CSV oavsett skiftläge, deduplicerat.
+    files = sorted({p for p in data_dir.iterdir() if FILENAME_RE.match(p.name)})
     if not files:
-        raise FileNotFoundError(f"Inga ZQ*.csv-filer hittades i {data_dir}")
+        raise FileNotFoundError(f"Inga ZQ<månadskod><år>.csv-filer hittades i {data_dir}")
 
     frames = []
     for path in files:

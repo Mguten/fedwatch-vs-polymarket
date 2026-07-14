@@ -1,14 +1,17 @@
 """Kör hela fedwatch-pipelinen end-to-end för ett givet watch_date.
 
-Modul 4 (CME-validering) är pausad — cmegroup.com blockerar programmatisk
-åtkomst (403, se fedwatch/validation/README.md). Modul 5:s matchningstabell
-kräver ett manuellt granskningssteg (se spec) — kör skriptet en första gång
-för att generera config/polymarket_fomc_match_review.csv, granska filen
-för hand (fyll i TRUE/FALSE i kolumnen 'confirmed'), kör sedan igen för att
-även få ut Modul 6:s jämförelsedata.
+Modul 5:s matchningstabell kräver ett manuellt granskningssteg (se spec) —
+kör skriptet en första gång för att generera
+config/polymarket_fomc_match_review.csv, granska filen för hand (fyll i
+TRUE/FALSE i kolumnen 'confirmed'), kör sedan igen för att även få ut
+Modul 6:s jämförelsedata.
+
+Modul 4 (CME-validering) kör ~250 motorkörningar (en per historiskt
+observationsdatum i Data/FedMeeting_*.csv) och tar ~30-40 sekunder.
+Hoppa över med --skip-validation vid snabbare iteration.
 
 Användning:
-    python run_pipeline.py [YYYY-MM-DD]   # watch_date, default: idag
+    python run_pipeline.py [YYYY-MM-DD] [--skip-validation]
 """
 
 import logging
@@ -28,6 +31,7 @@ from fedwatch.polymarket import (
     save_review_table,
 )
 from fedwatch.polymarket.matching import REVIEW_TABLE_PATH
+from fedwatch.validation import load_all_cme_meeting_histories, validate_against_cme
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("run_pipeline")
@@ -35,7 +39,7 @@ logger = logging.getLogger("run_pipeline")
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
 
-def main(watch_date: date) -> None:
+def main(watch_date: date, skip_validation: bool = False) -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
 
     logger.info("=== Modul 1: Data ingestion ===")
@@ -50,7 +54,21 @@ def main(watch_date: date) -> None:
     fedfunds.to_csv(fedfunds_path, index=False)
     logger.info("Sparade FedFunds-sannolikheter till %s", fedfunds_path)
 
-    logger.info("=== Modul 4: PAUSAD (se fedwatch/validation/README.md) ===")
+    if skip_validation:
+        logger.info("=== Modul 4: hoppar över (--skip-validation) ===")
+    else:
+        logger.info("=== Modul 4: Validering mot CME:s historik ===")
+        try:
+            cme_history = load_all_cme_meeting_histories()
+            validation = validate_against_cme(cme_history, meetings, contracts)
+            summary_path = OUTPUT_DIR / "cme_validation_summary.csv"
+            validation["per_meeting_summary"].to_csv(summary_path, index=False)
+            logger.info("Sparade valideringssammanfattning till %s", summary_path)
+        except FileNotFoundError as exc:
+            logger.warning(
+                "Ingen CME-historik hittades (%s) — se fedwatch/validation/README.md för hur "
+                "man skaffar den. Hoppar över Modul 4.", exc,
+            )
 
     logger.info("=== Modul 5: Polymarket — discovery + matchning ===")
     events = fetch_fed_decision_events()
@@ -81,8 +99,12 @@ def main(watch_date: date) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        watch_date_arg = datetime.strptime(sys.argv[1], "%Y-%m-%d").date()
+    args = sys.argv[1:]
+    skip_validation_arg = "--skip-validation" in args
+    date_args = [a for a in args if a != "--skip-validation"]
+
+    if date_args:
+        watch_date_arg = datetime.strptime(date_args[0], "%Y-%m-%d").date()
     else:
         watch_date_arg = date.today()
-    main(watch_date_arg)
+    main(watch_date_arg, skip_validation=skip_validation_arg)
