@@ -19,14 +19,37 @@ logger = logging.getLogger(__name__)
 REVIEW_TABLE_PATH = PROJECT_ROOT / "config" / "polymarket_fomc_match_review.csv"
 
 
-def build_match_review_table(polymarket_events: pd.DataFrame, meetings: pd.DataFrame) -> pd.DataFrame:
+def build_match_review_table(
+    polymarket_events: pd.DataFrame,
+    meetings: pd.DataFrame,
+    min_parsed_submarkets: int = 1,
+    require_match: bool = True,
+) -> pd.DataFrame:
     """Bygger en kandidatmatchning event <-> FOMC-möte, en rad per event.
 
     Matchningsmetod: exakt datum-likhet mellan eventets endDate och ett
     mötes end_date (t.ex. Polymarket-event 'Fed Decision in July?' med
     endDate=2026-07-29 mot FOMC-mötet 2026-07-29). Events utan exakt
-    datum-träff får matched_meeting_date=NaT och måste granskas manuellt
-    eller uteslutas.
+    datum-träff får matched_meeting_date=NaT.
+
+    min_parsed_submarkets: events med FÄRRE tolkade bp-submarknader än
+    detta utesluts helt ur granskningstabellen (default 1). Detta är INTE
+    en genväg runt manuell granskning av MATCHNING — det är bara att events
+    som "Powell Bingo: March", dissent-räknare eller
+    press-conference-ordräkningar strukturellt saknar bp_delta helt och
+    hållet och därmed inte kan bidra någon sannolikhetsdata till Modul 6,
+    oavsett om matchningen mot ett mötesdatum råkar stämma.
+
+    require_match: utesluter events UTAN exakt datum-träff (default True).
+    Nyckelordssökningen ("Fed", "interest rate") ger falska positiva från
+    ANDRA centralbanker (ECB, Bank of Japan, Bank of Israel, ...) vars
+    marknader råkar vara strukturerade likadant och därför tolkas fint som
+    bp-submarknader — men de matchar inget FOMC-mötesdatum och kan därför
+    ALDRIG användas av load_confirmed_matches ändå (den kräver
+    matched_meeting_date). Att lista dem ger bara fler rader utan poäng.
+
+    Sätt båda till 0/False om du vill se ALLA kandidater oberedda (t.ex.
+    för att dubbelkolla att inget relevant filtrerades bort av misstag).
     """
     if polymarket_events.empty:
         return pd.DataFrame(columns=[
@@ -69,11 +92,36 @@ def build_match_review_table(polymarket_events: pd.DataFrame, meetings: pd.DataF
         })
 
     table = pd.DataFrame(rows).sort_values(["matched_meeting_date", "event_title"], na_position="last")
+
+    before_filter = len(table)
+    table = table[table["n_submarkets_parsed"] >= min_parsed_submarkets]
+    n_dropped_unparsed = before_filter - len(table)
+    if n_dropped_unparsed:
+        logger.info(
+            "Uteslöt %d/%d event ur granskningstabellen: färre än %d tolkade bp-submarknader "
+            "(t.ex. dissent-räknare, Powell Bingo, ordräkningsmarknader — strukturellt "
+            "oanvändbara för Modul 6 oavsett matchning).",
+            n_dropped_unparsed, before_filter, min_parsed_submarkets,
+        )
+
+    if require_match:
+        before_match_filter = len(table)
+        table = table[table["matched_meeting_date"].notna()]
+        n_dropped_unmatched = before_match_filter - len(table)
+        if n_dropped_unmatched:
+            logger.info(
+                "Uteslöt %d event ur granskningstabellen: inget exakt FOMC-mötesdatum "
+                "(troligen andra centralbanker som ECB/BoJ/BoI som nyckelordssökningen "
+                "råkade fånga upp — kan aldrig användas av load_confirmed_matches ändå).",
+                n_dropped_unmatched,
+            )
+
+    table = table.reset_index(drop=True)
     n_matched = table["matched_meeting_date"].notna().sum()
     logger.info(
-        "Byggde granskningstabell: %d/%d events matchade ett FOMC-mötesdatum exakt. "
+        "Byggde granskningstabell: %d rader kvar (%d matchade ett FOMC-mötesdatum exakt). "
         "MÅSTE granskas för hand (kolumn 'confirmed') innan Modul 6 använder resultatet.",
-        n_matched, len(table),
+        len(table), n_matched,
     )
     return table
 

@@ -75,17 +75,21 @@ def test_load_confirmed_matches_only_returns_true_rows(tmp_path):
     assert set(confirmed["event_id"]) == {1, 3}
 
 
-def test_build_match_review_table_flags_exact_date_matches_only():
-    events = pd.DataFrame({
+def _sample_events():
+    return pd.DataFrame({
         "event_id": ["1", "1", "2"],
         "market_id": ["m1", "m2", "m3"],
-        "event_title": ["Fed decision in July?", "Fed decision in July?", "Unrelated market"],
+        "event_title": ["Fed decision in July?", "Fed decision in July?", "Powell Bingo: March"],
         "event_end_date": ["2026-07-29T00:00:00Z", "2026-07-29T00:00:00Z", "2026-08-15T00:00:00Z"],
         "parse_failed": [False, False, True],
     })
+
+
+def test_build_match_review_table_flags_exact_date_matches_only():
+    events = _sample_events()
     meetings = pd.DataFrame({"end_date": pd.to_datetime(["2026-07-29", "2026-09-16"])})
 
-    table = build_match_review_table(events, meetings)
+    table = build_match_review_table(events, meetings, min_parsed_submarkets=0, require_match=False)
     row1 = table[table["event_id"] == "1"].iloc[0]
     row2 = table[table["event_id"] == "2"].iloc[0]
 
@@ -95,3 +99,37 @@ def test_build_match_review_table_flags_exact_date_matches_only():
     assert pd.isna(row2["matched_meeting_date"])
     # confirmed ska ALDRIG förifyllas av koden — bara en hint i suggested_confirm.
     assert (table["confirmed"] == "").all()
+
+
+def test_build_match_review_table_drops_events_with_no_parsed_submarkets():
+    """Events utan EN ENDA tolkad bp-submarknad (t.ex. 'Powell Bingo') kan
+    strukturellt aldrig bidra sannolikhetsdata till Modul 6 — de ska
+    uteslutas helt ur granskningstabellen (default min_parsed_submarkets=1),
+    inte bara lämnas som ännu en rad att bläddra förbi."""
+    events = _sample_events()
+    meetings = pd.DataFrame({"end_date": pd.to_datetime(["2026-07-29", "2026-09-16"])})
+
+    table = build_match_review_table(events, meetings)
+
+    assert set(table["event_id"]) == {"1"}
+    assert "2" not in set(table["event_id"])
+
+
+def test_build_match_review_table_drops_unmatched_events_by_default():
+    """Ett event som parsar fint (t.ex. en utländsk centralbank som råkade
+    matcha nyckelordssökningen) men saknar ett exakt FOMC-mötesdatum kan
+    ändå aldrig användas av load_confirmed_matches (kräver
+    matched_meeting_date) — ska uteslutas som brus, inte listas."""
+    events = pd.DataFrame({
+        "event_id": ["1", "1", "3", "3"],
+        "market_id": ["m1", "m2", "m4", "m5"],
+        "event_title": ["Fed decision in July?"] * 2 + ["ECB Interest Rates: July 2026"] * 2,
+        "event_end_date": ["2026-07-29T00:00:00Z"] * 2 + ["2026-08-15T00:00:00Z"] * 2,
+        "parse_failed": [False, False, False, False],
+    })
+    meetings = pd.DataFrame({"end_date": pd.to_datetime(["2026-07-29", "2026-09-16"])})
+
+    table = build_match_review_table(events, meetings)
+
+    assert set(table["event_id"]) == {"1"}
+    assert "3" not in set(table["event_id"])

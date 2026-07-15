@@ -57,6 +57,23 @@ def fetch_confirmed_market_histories(confirmed_matches: pd.DataFrame, polymarket
             })
 
     result = pd.DataFrame(rows)
+    if not result.empty:
+        # CLOB:s prishistorik innehåller en extra "just nu"-datapunkt för
+        # INNEVARANDE dag utöver den vanliga dagliga snapshotten (samma
+        # kalenderdatum, olika klockslag) — dedupa till senaste pris per dag.
+        before_dedup = len(result)
+        result = (
+            result.sort_values("date")
+            .drop_duplicates(subset=["event_id", "bp_delta", "date"], keep="last")
+            .reset_index(drop=True)
+        )
+        if before_dedup != len(result):
+            logger.debug(
+                "Dedupade %d dubblettdatapunkter (samma dag, flera klockslag — t.ex. dagens "
+                "intradag-pris utöver den ordinarie dagliga snapshotten).",
+                before_dedup - len(result),
+            )
+
     logger.info(
         "Hämtade %d historiska datapunkter över %d submarknader (%d bekräftade möten).",
         len(result), submarkets["market_id"].nunique() if not submarkets.empty else 0,
