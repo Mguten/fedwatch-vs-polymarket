@@ -10,6 +10,23 @@ det specifika mötet, oberoende av tidigare möten sedan watch_date) — inte
 den kumulativa CME-konventionen — eftersom det är precis den storhet
 Polymarkets möte-för-möte-marknader ("increase by 25bps after the July
 meeting?") faktiskt prisar in. Se fedwatch.deconvolution.engine docstring.
+
+KÄND OCH AVSIKTLIG DIVERGENS — inte en bugg att fixa:
+FedFunds-motorns 'local'-fördelning är, per konstruktion, ALLTID exakt
+binär (två angränsande 25bp-utfall) — det är den enda fördelning steg 6-7
+i CME:s metodologi ger för en enskild månad. Polymarket prisar ofta in
+fem eller fler distinkta utfall för samma möte (verifierat 2026-07-15 mot
+event 606422, "Fed Decision in October?": vår motor gav ~72/28% på två
+nivåer, Polymarket prisade fem nivåer med verklig massa på -50/-25/+50bp).
+
+Detta har medvetet INTE "fixats" genom att bredda local-fördelningen —
+ett sådant försök gjordes (Binomial-generaliserad breddning) och gav
+SÄMRE träffsäkerhet mot CME:s egna publicerade siffror (se
+fedwatch.deconvolution.engine och tests/test_deconvolution.py). Att
+justera Modul 3 för att likna Polymarket mer skulle byta ut en validerad
+CME-replika mot en ovaliderad gissning, bara för att dölja precis den
+typ av metodgap spec bad oss flagga. Gapet ÄR fyndet — Modul 6:s jobb är
+att visa divergensen, inte eliminera den.
 """
 
 import logging
