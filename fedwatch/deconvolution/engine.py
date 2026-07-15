@@ -142,8 +142,10 @@ def run_deconvolution(
         current_rate_upper = float(upper_series.loc[: pd.Timestamp(watch_date)].iloc[-1])
         current_rate_lower = float(lower_series.loc[: pd.Timestamp(watch_date)].iloc[-1])
 
-    anchor_price = 100 - (current_rate_upper + current_rate_lower) / 2
-    months = build_month_frame(watch_date, horizon_meetings, contracts, anchor_price=anchor_price)
+    # OBS: skicka den FULLA (ej watch_date-filtrerade) meetings-listan, inte
+    # horizon_meetings — se build_month_frame-docstringen för varför (annars
+    # felklassas watch_date:s egen månad som icke-FOMC dagen efter ett beslut).
+    months = build_month_frame(watch_date, meetings, contracts)
     months = propagate_prices(months)
     month_lookup = {(m.year, m.month): m for m in months}
 

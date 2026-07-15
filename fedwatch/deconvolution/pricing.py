@@ -87,40 +87,47 @@ def build_month_frame(
     watch_date: date,
     meetings: pd.DataFrame,
     contracts: pd.DataFrame,
-    anchor_price: float = None,
 ) -> list[MonthRecord]:
     """Bygger en MonthRecord per kalendermånad från watch_date:s månad t.o.m.
     sista mötets månad, med Pavg ifylld och FOMC-möten kopplade till rätt månad.
 
-    anchor_price: om watch_date:s egen månad redan är en FOMC-månad (mötet
-    ligger senare samma månad som watch_date) finns ingen tidigare månad i
-    fönstret att framåtpropagera Pstart ifrån. Då krävs en känd "ankarränta"
-    för läget precis vid watch_date (typiskt dagens faktiska target rate från
-    FRED, se engine.run_deconvolution) — den läggs in som en syntetisk
-    icke-FOMC-månad omedelbart före watch_date:s månad.
+    Watch_date:s egen månad blir alltid indexet 0 i den returnerade listan.
+    Om den månaden är en FOMC-månad (mötet ligger senare samma månad som
+    watch_date, ELLER redan inträffat tidigare samma månad) finns ingen
+    tidigare månad i FÖNSTRET att framåtpropagera Pstart ifrån — det löses
+    inte med en genväg (t.ex. dagens FRED-ränta som "ankare") utan genom att
+    propagate_prices bakåtlöser index 0 precis som alla andra FOMC-månader,
+    mot dess EGET Pavg + nästa månads Pend. Det är mer exakt än ett FRED-
+    ankare (som bara ger dagens punktränta, inte marknadens prissatta
+    förväntan för HELA månaden) och ger kontinuerliga resultat över både
+    mötesdagen och månadsskiften (se regressionstesterna i
+    tests/test_deconvolution.py för båda fallen).
+
+    OBS: `meetings` måste vara den FULLA möteslistan, inte förfiltrerad till
+    möten på/efter watch_date. Om ett möte redan inträffat TIDIGARE SAMMA
+    MÅNAD som watch_date (vanligt — gäller alla datum mellan mötesdagen och
+    månadsskiftet) måste den månaden ändå klassificeras som en FOMC-månad,
+    annars framåtpropageras dess råa (odelade) månadsgenomsnitt av misstag
+    rakt in i NÄSTA månads Pstart istället för att nästa möte löses mot sitt
+    eget Pavg — en tyst men stor felkälla (verifierad: gav >60 procentenhets
+    fel dagen efter ett riktigt FOMC-beslut). Fönstrets bortre gräns baseras
+    däremot korrekt bara på KOMMANDE möten (>= watch_date) — se
+    horizon_meetings nedan.
     """
     horizon_meetings = meetings[meetings["end_date"].dt.date >= watch_date].sort_values("end_date")
     if horizon_meetings.empty:
         raise ValueError("Inga kommande FOMC-möten på eller efter watch_date.")
 
     last_meeting_date = horizon_meetings["end_date"].dt.date.max()
-    watch_month_has_meeting = any(
-        d.year == watch_date.year and d.month == watch_date.month
-        for d in horizon_meetings["end_date"].dt.date
-    )
 
     months: list[MonthRecord] = []
-    if watch_month_has_meeting and anchor_price is not None:
-        anchor_year, anchor_month = _add_months(watch_date.year, watch_date.month, -1)
-        anchor = MonthRecord(year=anchor_year, month=anchor_month)
-        anchor.p_avg = anchor.p_start = anchor.p_end = anchor_price
-        months.append(anchor)
+    all_meeting_end_dates = meetings["end_date"].dt.date
 
     year, month = watch_date.year, watch_date.month
     while (year, month) <= (last_meeting_date.year, last_meeting_date.month):
         rec = MonthRecord(year=year, month=month)
         rec.meeting_end_dates = sorted(
-            d for d in horizon_meetings["end_date"].dt.date if d.year == year and d.month == month
+            d for d in all_meeting_end_dates if d.year == year and d.month == month
         )
         try:
             rec.p_avg = month_avg_price(contracts, year, month, watch_date)
@@ -141,13 +148,14 @@ def propagate_prices(months: list[MonthRecord]) -> list[MonthRecord]:
     för flermötesmånader (löses mot Pavg + ev. spread mot nästa kontraktsmånad).
 
     OBS — känd egenskap vid KEDJOR AV FLERA FOMC-månader I RAD (t.ex. verkliga
-    juni/juli 2026): den mittersta brytpunkten (t.ex. junis Pend = julis
-    Pstart) löses uteslutande ur den SENARE månadens egen Pavg/dagviktning
-    (här: juli), eftersom den tidigare månaden (juni) redan fått sitt Pstart
-    framåtpropagerat och aldrig konsumerar sitt eget Pavg i denna kedja. Juni
-    egen Pavg används alltså inte till något i just detta fall — samma
-    beteende som referensimplementationen pyfedwatch (fill_price_data).
-    Det är inte ett fel, men värt att känna till vid felsökning av resultat.
+    juni/juli 2026, eller en FOMC-månad som råkar vara watch_date:s egen
+    första månad i fönstret): den tidigaste månadens Pstart löses ALLTID via
+    bakåtpasset mot dess EGET Pavg + nästa månads (då kända) Pend — aldrig
+    via framåtpropagering, eftersom det per definition inte finns någon
+    tidigare månad i fönstret. Det är index 0:s enda väg till ett Pstart och
+    hanteras identiskt med alla andra FOMC-månader i kedjan (se
+    build_month_frame-docstringen för varför detta INTE löses med ett
+    FRED-"ankare" längre).
     """
     n = len(months)
     for rec in months:
@@ -156,6 +164,8 @@ def propagate_prices(months: list[MonthRecord]) -> list[MonthRecord]:
             rec.p_end = rec.p_avg
 
     # Forward-pass: propagera en känd grannmånads pris framåt exakt ett steg.
+    # Index 0 har per definition ingen föregående månad i fönstret — hoppas
+    # alltid över här, löses istället i bakåtpasset nedan.
     for i in range(1, n - 1):
         rec = months[i]
         if not rec.is_fomc_month:
@@ -164,8 +174,9 @@ def propagate_prices(months: list[MonthRecord]) -> list[MonthRecord]:
         if pd.isna(rec.p_start) and not pd.isna(prev_end):
             rec.p_start = prev_end
 
-    # Backward-pass: lös resterande FOMC-månader bakifrån.
-    for i in range(n - 2, 0, -1):
+    # Backward-pass: lös resterande FOMC-månader bakifrån, INKLUSIVE index 0
+    # (watch_date:s egen månad, om den är en FOMC-månad — se build_month_frame).
+    for i in range(n - 2, -1, -1):
         rec = months[i]
         if not rec.is_fomc_month:
             continue

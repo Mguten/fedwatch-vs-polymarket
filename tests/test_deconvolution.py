@@ -22,7 +22,7 @@ import pytest
 
 from fedwatch.config import CME_VALIDATION_TOLERANCE_PP, PROJECT_ROOT
 from fedwatch.deconvolution.engine import _convolve, _local_step_distribution, run_deconvolution
-from fedwatch.deconvolution.pricing import MonthRecord, month_avg_price, propagate_prices
+from fedwatch.deconvolution.pricing import MonthRecord, build_month_frame, month_avg_price, propagate_prices
 from fedwatch.ingestion import load_all_contracts
 from fedwatch.fomc.dates import get_fomc_meetings
 
@@ -247,6 +247,59 @@ def test_propagate_consecutive_fomc_months_chain():
 
     reconstructed_jul = _reconstruct_avg(months[2].p_start, months[2].p_end, 29, 2026, 7)
     assert reconstructed_jul == pytest.approx(jul.p_avg)
+
+
+def test_index_zero_fomc_month_resolves_via_backward_solve_not_anchor():
+    """Om watch_date:s EGEN månad (index 0 i fönstret) är en FOMC-månad
+    finns per definition ingen tidigare månad att framåtpropagera Pstart
+    ifrån. Detta löstes tidigare med ett syntetiskt "FRED-ankare" (dagens
+    punkt-ränta) — men det visade sig ge en falsk diskontinuitet varje
+    månadsskifte (verifierat mot verklig data: jan 2025/jan 2026 tappade
+    ~20-40pp i beräknad sannolikhet exakt vid nyår). Rätt lösning är att
+    bakåtpasset även löser index 0, mot dess EGET Pavg + nästa månads Pend
+    — precis som varje annan FOMC-månad i en kedja.
+    """
+    jan = MonthRecord(year=2025, month=1, meeting_end_dates=[date(2025, 1, 29)], p_avg=95.675)
+    feb = MonthRecord(year=2025, month=2, p_avg=95.69)
+
+    months = propagate_prices([jan, feb])
+
+    assert not pd.isna(months[0].p_start), "index 0 ska bakåtlösas, inte förbli NaN"
+    assert months[0].p_end == pytest.approx(feb.p_avg)
+
+    reconstructed = _reconstruct_avg(months[0].p_start, months[0].p_end, 29, 2025, 1)
+    assert reconstructed == pytest.approx(jan.p_avg)
+
+
+def test_month_classification_survives_a_past_meeting_in_watch_month():
+    """Regressionstest för den faktiska bugg som hittades 2026-07-15: när
+    watch_date passerar ett mötesdatum inom SAMMA månad (t.ex. dagen efter
+    ett FOMC-beslut, innan månadsskiftet) fick build_month_frame tidigare
+    den månaden att felklassas som icke-FOMC — eftersom den bara letade
+    möten i den redan watch_date-filtrerade listan. Det fick månadens råa
+    Pavg framåtpropageras rakt in i NÄSTA månads Pstart istället för att
+    det mötet löstes mot sitt eget Pavg (se build_month_frame-docstringen).
+
+    Verifierar att december (mötesdag 18:e) klassificeras som FOMC-månad
+    både dagen FÖRE och dagen EFTER mötet, givet den FULLA möteslistan.
+    """
+    all_meetings = pd.DataFrame({
+        "end_date": pd.to_datetime(["2024-12-18", "2025-01-29"]),
+    })
+    contracts = pd.DataFrame({
+        "contract_symbol": ["ZQZ24"] * 2 + ["ZQF25"] * 2 + ["ZQG25"] * 2,
+        "contract_month": [12, 12, 1, 1, 2, 2],
+        "contract_year": [2024, 2024, 2025, 2025, 2025, 2025],
+        "date": pd.to_datetime(["2024-12-17", "2024-12-19", "2024-12-17", "2024-12-19", "2024-12-17", "2024-12-19"]),
+        "close_price": [95.50, 95.55, 95.67, 95.68, 95.69, 95.69],
+    })
+
+    before = build_month_frame(date(2024, 12, 17), all_meetings, contracts)
+    after = build_month_frame(date(2024, 12, 19), all_meetings, contracts)
+
+    assert before[0].is_fomc_month, "december ska klassas som FOMC-månad dagen före mötet"
+    assert after[0].is_fomc_month, "december ska FORTFARANDE klassas som FOMC-månad dagen efter mötet"
+    assert after[0].meeting_end_dates == [date(2024, 12, 18)]
 
 
 def test_multi_meeting_month_is_flagged_and_conserves_average():
