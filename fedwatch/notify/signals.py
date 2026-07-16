@@ -145,15 +145,56 @@ def filter_new_signals(signals: pd.DataFrame, state: dict, as_of: date = None) -
     return new_signals, updated_state
 
 
-def format_signal_message(row: pd.Series) -> str:
+def kelly_fraction(p_pct: float, polymarket_pct: float) -> float:
+    """Full-Kelly-andel f* = (p-P)/(1-P) för att köpa en YES-andel till pris P
+    (0-1-skala) när du tror sanna sannolikheten är p. Se STRATEGY.md §6 för
+    härledning. Entry-regeln (p>P) garanterar f*>0 här, men klipps till 0
+    som skydd om funktionen någonsin anropas utanför den regeln."""
+    p, P = p_pct / 100, polymarket_pct / 100
+    return max(0.0, (p - P) / (1 - P))
+
+
+def suggested_stake_sek(
+    p_pct: float, polymarket_pct: float, bankroll_sek: float,
+    kelly_multiplier: float = 0.5, max_stake_pct: float = 10.0,
+) -> tuple:
+    """Satsningsförslag enligt STRATEGY.md §6: fraktionerad Kelly (default
+    halv-Kelly) plus ett hårt tak per trade (default 10% av bankrullen) —
+    båda är ETABLERAD RISKPRAXIS, INTE siffror backtestade i det här
+    projektet (se §6). Returnerar (stake_sek, full_kelly_fraction).
+    """
+    f_star = kelly_fraction(p_pct, polymarket_pct)
+    fractional = f_star * kelly_multiplier
+    capped_fraction = min(fractional, max_stake_pct / 100)
+    return round(capped_fraction * bankroll_sek, 2), f_star
+
+
+def format_signal_message(
+    row: pd.Series, bankroll_sek: float = None, kelly_multiplier: float = 0.5, max_stake_pct: float = 10.0,
+) -> str:
     bucket_label = f"{'≥' if row['bp_delta'] >= 0 else '≤'}{row['bp_delta']:+d}bp" if row["open_ended"] else f"{row['bp_delta']:+d}bp"
+
+    sizing_line = ""
+    if bankroll_sek is not None:
+        stake, f_star = suggested_stake_sek(
+            row["fedfunds_probability_pct"], row["polymarket_probability_pct"],
+            bankroll_sek, kelly_multiplier, max_stake_pct,
+        )
+        sizing_line = (
+            f"\nFörslag på satsning ({kelly_multiplier:.2f}× Kelly, tak {max_stake_pct:.0f}% "
+            f"av {bankroll_sek:.0f} kr): *{stake:.0f} kr* (full Kelly hade varit "
+            f"{f_star*100:.1f}% av bankrullen — se STRATEGY.md §6, detta är etablerad "
+            f"riskpraxis, inte en backtestad regel)"
+        )
+
     return (
         f"*FedFunds-signal: köpläge identifierat*\n\n"
         f"Möte: {row['meeting_date']}\n"
         f"Nivå: {bucket_label} ({row['question']})\n"
         f"Vår modell (p): {row['fedfunds_probability_pct']:.1f}%\n"
         f"Polymarket (P): {row['polymarket_probability_pct']:.1f}%\n"
-        f"Edge (p−P): {row['edge_pp']:+.1f}pp\n\n"
+        f"Edge (p−P): {row['edge_pp']:+.1f}pp\n"
+        f"{sizing_line}\n\n"
         f"Regel: STRATEGY.md §4 (p≥tröskel och p>P). Detta är forskning, inte "
         f"en rekommendation — se STRATEGY.md §9 för kända begränsningar innan "
         f"du agerar på detta."

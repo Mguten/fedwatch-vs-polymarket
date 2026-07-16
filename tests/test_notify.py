@@ -7,7 +7,13 @@ from datetime import date, timedelta
 import pandas as pd
 import pytest
 
-from fedwatch.notify.signals import filter_new_signals, find_leading_level_signals
+from fedwatch.notify.signals import (
+    filter_new_signals,
+    find_leading_level_signals,
+    format_signal_message,
+    kelly_fraction,
+    suggested_stake_sek,
+)
 
 TODAY = date(2026, 7, 16)
 
@@ -140,3 +146,54 @@ def test_filter_new_signals_clears_past_meetings_from_state():
 
     assert str(past_meeting) not in updated_state
     assert str(future_meeting) in updated_state
+
+
+def test_kelly_fraction_basic():
+    # f* = (p-P)/(1-P) = (0.70-0.55)/(1-0.55) = 0.15/0.45
+    assert kelly_fraction(70.0, 55.0) == pytest.approx(0.15 / 0.45)
+
+
+def test_kelly_fraction_clips_to_zero_without_edge():
+    # Skyddsklippning om p<=P (ska inte hända givet entry-regeln, men f* ska
+    # aldrig bli negativ om funktionen ändå anropas utanför den).
+    assert kelly_fraction(50.0, 55.0) == 0.0
+
+
+def test_suggested_stake_sek_applies_hard_cap():
+    # f* = 0.3333, halv-Kelly = 0.1667 -> över taket 10%, ska klippas dit.
+    stake, f_star = suggested_stake_sek(
+        p_pct=70.0, polymarket_pct=55.0, bankroll_sek=1000.0, kelly_multiplier=0.5, max_stake_pct=10.0,
+    )
+    assert f_star == pytest.approx(0.15 / 0.45)
+    assert stake == pytest.approx(100.0)
+
+
+def test_suggested_stake_sek_below_cap_uses_fractional_kelly():
+    # Litet edge -> halv-Kelly hamnar under taket, ska inte klippas.
+    stake, f_star = suggested_stake_sek(
+        p_pct=61.0, polymarket_pct=59.0, bankroll_sek=1000.0, kelly_multiplier=0.5, max_stake_pct=10.0,
+    )
+    expected_f_star = (0.61 - 0.59) / (1 - 0.59)
+    assert f_star == pytest.approx(expected_f_star)
+    assert stake == pytest.approx(expected_f_star * 0.5 * 1000.0, abs=0.01)
+
+
+def test_format_signal_message_includes_sizing_when_bankroll_given():
+    row = pd.Series({
+        "meeting_date": date(2026, 9, 16), "bp_delta": -25, "open_ended": False,
+        "question": "-25bp?", "fedfunds_probability_pct": 70.0,
+        "polymarket_probability_pct": 55.0, "edge_pp": 15.0,
+    })
+    message = format_signal_message(row, bankroll_sek=1000.0, kelly_multiplier=0.5, max_stake_pct=10.0)
+    assert "Förslag på satsning" in message
+    assert "100 kr" in message
+
+
+def test_format_signal_message_omits_sizing_without_bankroll():
+    row = pd.Series({
+        "meeting_date": date(2026, 9, 16), "bp_delta": -25, "open_ended": False,
+        "question": "-25bp?", "fedfunds_probability_pct": 70.0,
+        "polymarket_probability_pct": 55.0, "edge_pp": 15.0,
+    })
+    message = format_signal_message(row)
+    assert "Förslag på satsning" not in message

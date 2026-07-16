@@ -56,8 +56,10 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 logger = logging.getLogger("run_notify")
 
 STATE_PATH = PROJECT_ROOT / "output" / "notify_state.json"
-DEFAULT_THRESHOLD_PCT = 60.0
+DEFAULT_THRESHOLD_PCT = 70.0
 DEFAULT_WINDOW_DAYS = 90
+DEFAULT_KELLY_MULTIPLIER = 0.5
+DEFAULT_MAX_STAKE_PCT = 10.0
 
 
 def main() -> None:
@@ -72,8 +74,33 @@ def main() -> None:
 
     threshold_pct = float(os.environ.get("NOTIFY_THRESHOLD_PCT", DEFAULT_THRESHOLD_PCT))
     window_days = int(os.environ.get("NOTIFY_WINDOW_DAYS", DEFAULT_WINDOW_DAYS))
+    bankroll_sek_raw = os.environ.get("NOTIFY_BANKROLL_SEK")
+    bankroll_sek = float(bankroll_sek_raw) if bankroll_sek_raw else None
+    kelly_multiplier = float(os.environ.get("NOTIFY_KELLY_MULTIPLIER", DEFAULT_KELLY_MULTIPLIER))
+    max_stake_pct = float(os.environ.get("NOTIFY_MAX_STAKE_PCT", DEFAULT_MAX_STAKE_PCT))
     today = date.today()
 
+    try:
+        _run(bot_token, chat_id, threshold_pct, window_days, bankroll_sek, kelly_multiplier, max_stake_pct, today)
+    except Exception as exc:
+        # En trasig körning (t.ex. investing.com/Polymarket/FRED nere eller
+        # blockerar oss) ska INTE bara synas i en lokal loggfil ingen kollar
+        # -- annars kan notisfunktionen vara död i veckor utan att du märker
+        # det. Skicka ett felmeddelande via samma Telegram-bot, låt sedan
+        # felet krascha processen som vanligt (så cron/loggen ändå visar det).
+        logger.exception("Körningen misslyckades.")
+        try:
+            send_telegram_message(
+                bot_token, chat_id,
+                f"⚠️ *FedWatch-notiser: körningen misslyckades*\n\n`{type(exc).__name__}: {exc}`\n\n"
+                f"Kolla `output/notify.log` för fullständig traceback.",
+            )
+        except Exception:
+            logger.exception("Kunde inte ens skicka felnotisen via Telegram.")
+        raise
+
+
+def _run(bot_token, chat_id, threshold_pct, window_days, bankroll_sek, kelly_multiplier, max_stake_pct, today) -> None:
     logger.info("=== Hämtar aktuell target-rate (FRED) ===")
     upper_series = fetch_fred_series("DFEDTARU")
     lower_series = fetch_fred_series("DFEDTARL")
@@ -105,7 +132,9 @@ def main() -> None:
         return
 
     for _, row in new_signals.iterrows():
-        message = format_signal_message(row)
+        message = format_signal_message(
+            row, bankroll_sek=bankroll_sek, kelly_multiplier=kelly_multiplier, max_stake_pct=max_stake_pct,
+        )
         send_telegram_message(bot_token, chat_id, message)
         logger.info("Notis skickad för möte %s.", row["meeting_date"])
 
