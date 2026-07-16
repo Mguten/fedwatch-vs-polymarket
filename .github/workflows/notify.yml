@@ -1,16 +1,27 @@
 name: FedWatch live notify
 
-# Modul 7: kor den LIVA notisfunktionen (run_notify.py) dagligen. Datakalla
-# for var sannolikhet ar investing.com (fedwatch.livesource.investing), inte
+# Modul 7: kor den LIVA notisfunktionen (run_notify.py). Datakalla for var
+# sannolikhet ar investing.com (fedwatch.livesource.investing), inte
 # ZQ-kontraktspipelinen som resten av repot visar upp -- se run_notify.py och
 # RAPPORT.md for varfor. Kraver TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID som
 # repo-secrets (Settings -> Secrets and variables -> Actions), se README.
+#
+# VIKTIGT (2026-07-16): investing.com svarar 403 Forbidden pa GitHub-hostade
+# runners specifikt (Azure-datacenter-IP-intervall), aven om exakt samma
+# anrop fungerar fint fran en vanlig hemma-/kontors-IP -- bekraftat genom att
+# faktiskt kora denna workflow. Det ar sannolikt IP/datacenter-baserad
+# bot-blockering fran investing.coms sida. Vi har medvetet INTE forsokt runda
+# detta (proxy, IP-rotation etc.) -- det vore detection-evasion-teknik mot en
+# tredje parts uttryckliga bot-skydd, samma linje som vi drog vid CME:s
+# Akamai-block. Schemat (schedule:) ar darfor borttaget -- den HAR kort och
+# gott inte fungerat automatiskt via GitHub Actions med nuvarande datakalla.
+# Den faktiska notisfunktionen kors istallet lokalt via cron
+# (run_notify_cron.sh, se README "Live-notiser"). Denna workflow lamnas kvar
+# med workflow_dispatch for att dokumentera forsoket och kunna testas manuellt
+# -- forvanta dig att den fortfarande misslyckas pa investing.com-steget om
+# den kors fran GitHub-hostade runners.
 
 "on":
-  schedule:
-    # 13:00 UTC dagligen (fore amerikansk marknadsoppning). Justera vid behov
-    # -- FOMC-sannolikheter ror sig inte sa snabbt att tatare korning behovs.
-    - cron: "0 13 * * *"
   workflow_dispatch: {}
 
 jobs:

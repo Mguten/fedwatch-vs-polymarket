@@ -7,3 +7,6 @@ output/
 # Rå CME/Barchart-terminsdata -- eventuella licensvillkor för
 # vidaredistribution är inte kollade, hålls därför utanför det publika repot.
 Data/
+
+# Hemligheter för Modul 7 (Telegram-notiser) -- se .env.example.
+.env

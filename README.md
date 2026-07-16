@@ -59,21 +59,29 @@ om så är fallet. Detta är forskning, inte en rekommendation — läs
    `https://api.telegram.org/bot<DIN_TOKEN>/getUpdates` i en webbläsare och
    leta upp `"chat":{"id": ...}` — det är ditt `chat_id`.
 
-**Köra lokalt:**
+**Schemaläggning: lokal cron, INTE GitHub Actions.** `.github/workflows/notify.yml`
+finns kvar i repot för att dokumentera försöket, men investing.com svarar
+`403 Forbidden` specifikt på GitHub-hostade runners (Azure-datacenter-IP),
+bekräftat genom att faktiskt köra workflowen — samma anrop fungerar fint
+från en vanlig hemma-IP. Snarare än att kringgå det (proxy/IP-rotation —
+detection-evasion mot investing.coms bot-skydd, samma linje vi drog vid
+CME:s Akamai-block) körs notisfunktionen istället lokalt via cron:
+
 ```bash
-export TELEGRAM_BOT_TOKEN=...
-export TELEGRAM_CHAT_ID=...
-python run_notify.py
+cp .env.example .env   # fyll i TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID
+crontab -e
+# lägg till:
+0 8 * * * /sökväg/till/FF_rates/run_notify_cron.sh
 ```
 
-**Köra via GitHub Actions (schemalagt):** lägg `TELEGRAM_BOT_TOKEN` och
-`TELEGRAM_CHAT_ID` som repo-secrets (Settings → Secrets and variables →
-Actions) — workflowen i `.github/workflows/notify.yml` körs sedan
-automatiskt dagligen. Den behöver INTE `Data/` (investing.com-källan gör
-programanrop över nätet, inga lokala kontraktsfiler).
+`run_notify_cron.sh` läser `.env` (cron ärver inte din interaktiva miljö)
+och loggar till `output/notify.log`. Kolla loggen för att bekräfta att det
+faktiskt körs (`tail -f output/notify.log`), och `crontab -l` för att se
+schemat.
 
-Valfria miljövariabler: `NOTIFY_THRESHOLD_PCT` (default 60.0, tröskeln T i
-STRATEGY.md §4) och `NOTIFY_WINDOW_DAYS` (default 90).
+Valfria miljövariabler (i `.env` eller exporterade): `NOTIFY_THRESHOLD_PCT`
+(default 60.0, tröskeln T i STRATEGY.md §4) och `NOTIFY_WINDOW_DAYS`
+(default 90).
 
 ## Miljö
 
