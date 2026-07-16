@@ -1,5 +1,5 @@
 from fedwatch.polymarket.discovery import fetch_fed_decision_events
-from fedwatch.polymarket.history import fetch_confirmed_market_histories
+from fedwatch.polymarket.history import fetch_confirmed_current_prices, fetch_confirmed_market_histories
 from fedwatch.polymarket.matching import build_match_review_table, load_confirmed_matches, save_review_table
 
 __all__ = [
@@ -8,4 +8,5 @@ __all__ = [
     "save_review_table",
     "load_confirmed_matches",
     "fetch_confirmed_market_histories",
+    "fetch_confirmed_current_prices",
 ]

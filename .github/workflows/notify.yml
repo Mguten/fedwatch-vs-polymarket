@@ -1,0 +1,49 @@
+name: FedWatch live notify
+
+# Modul 7: kor den LIVA notisfunktionen (run_notify.py) dagligen. Datakalla
+# for var sannolikhet ar investing.com (fedwatch.livesource.investing), inte
+# ZQ-kontraktspipelinen som resten av repot visar upp -- se run_notify.py och
+# RAPPORT.md for varfor. Kraver TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID som
+# repo-secrets (Settings -> Secrets and variables -> Actions), se README.
+
+on:
+  schedule:
+    # 13:00 UTC dagligen (fore amerikansk marknadsoppning). Justera vid behov
+    # -- FOMC-sannolikheter ror sig inte sa snabbt att tatare korning behovs.
+    - cron: "0 13 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Installera beroenden
+        run: pip install -r requirements.txt
+
+      - name: Återställ tidigare notis-state
+        id: cache-restore
+        uses: actions/cache/restore@v4
+        with:
+          path: output/notify_state.json
+          key: notify-state-${{ github.run_id }}
+          restore-keys: |
+            notify-state-
+
+      - name: Kör notisfunktionen
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python run_notify.py
+
+      - name: Spara notis-state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: output/notify_state.json
+          key: notify-state-${{ github.run_id }}

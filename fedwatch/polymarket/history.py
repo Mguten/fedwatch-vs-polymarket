@@ -11,6 +11,56 @@ from fedwatch.polymarket.client import get_price_history
 logger = logging.getLogger(__name__)
 
 
+def fetch_confirmed_current_prices(confirmed_matches: pd.DataFrame, polymarket_events: pd.DataFrame) -> pd.DataFrame:
+    """Som fetch_confirmed_market_histories, men hämtar bara senaste priset
+    per submarknad (interval='1d') istället för hela historiken — tänkt för
+    återkommande live-körningar (t.ex. Modul 7:s notisfunktion) där bara
+    dagens pris behövs, inte hela tidsserien.
+
+    Output-kolumner: samma som fetch_confirmed_market_histories, men en rad
+    per submarknad (senaste datapunkten)."""
+    events = polymarket_events.copy()
+    events["event_id"] = events["event_id"].astype(str)
+    confirmed = confirmed_matches.copy()
+    confirmed["event_id"] = confirmed["event_id"].astype(str)
+
+    submarkets = events[
+        events["event_id"].isin(confirmed["event_id"])
+        & events["bp_delta"].notna()
+        & events["yes_clob_token_id"].notna()
+    ].merge(
+        confirmed[["event_id", "matched_meeting_date"]], on="event_id", how="inner",
+    )
+
+    rows = []
+    for _, sub in submarkets.iterrows():
+        try:
+            history = get_price_history(sub["yes_clob_token_id"], interval="1d", fidelity=1440)
+        except Exception as exc:
+            logger.warning(
+                "Kunde inte hämta aktuellt pris för event %s (%s): %s",
+                sub["event_id"], sub["question"], exc,
+            )
+            continue
+        if not history:
+            continue
+
+        latest = max(history, key=lambda point: point["t"])
+        rows.append({
+            "meeting_date": sub["matched_meeting_date"],
+            "event_id": sub["event_id"],
+            "question": sub["question"],
+            "bp_delta": int(sub["bp_delta"]),
+            "open_ended": bool(sub["open_ended"]),
+            "date": datetime.fromtimestamp(latest["t"], tz=timezone.utc).date(),
+            "polymarket_probability_pct": round(latest["p"] * 100, 4),
+        })
+
+    result = pd.DataFrame(rows)
+    logger.info("Hämtade aktuella priser för %d submarknader.", len(result))
+    return result
+
+
 def fetch_confirmed_market_histories(confirmed_matches: pd.DataFrame, polymarket_events: pd.DataFrame) -> pd.DataFrame:
     """För varje bekräftad match: hämta historisk prisserie per submarknad
     (=bp-utfall) och platta ut till en tidsserie-DataFrame.

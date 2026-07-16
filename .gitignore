@@ -3,3 +3,7 @@ __pycache__/
 .pytest_cache/
 output/
 .~lock.*#
+
+# Rå CME/Barchart-terminsdata -- eventuella licensvillkor för
+# vidaredistribution är inte kollade, hålls därför utanför det publika repot.
+Data/
