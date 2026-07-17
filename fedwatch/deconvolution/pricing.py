@@ -211,11 +211,25 @@ def _solve_month(rec: MonthRecord) -> None:
     uppdelning. Anropas endast för enmötesmånader — flermötesmånader hanteras
     separat av _solve_multi_meeting_month (kräver alltid segment_rates,
     oavsett om Pstart/Pend redan är kända, se propagate_prices).
+
+    Dagräkningskonvention (fixad 2026-07-17, verifierad mot CME:s egen
+    publicerade metodologi och dess fullständigt uträknade exempel för
+    september 2022): mötesdagen själv räknas till perioden FÖRE mötet
+    (N-sidan), inte perioden efter (M-sidan) — motsvarande att räntebeslutet
+    börjar gälla dagen EFTER mötet, inte samma dag. CME:s egen artikel anger
+    för mötet 21 september 2022 (30-dagarsmånad): N=21 dagar före (dag 1-21,
+    INKLUSIVE mötesdagen), M=9 dagar efter (dag 22-30). Tidigare hade denna
+    funktion `m = days_no - meeting_day + 1`, vilket lade mötesdagen på
+    M-sidan istället — gav en annan (felaktig) Pstart som för CME:s exempel
+    producerade en helt annan sannolikhetsfördelning (75/25 på fel nivåer
+    istället för CME:s 10/90 på rätt nivåer). Se
+    tests/test_deconvolution.py för regressionstestet mot detta exakta
+    CME-exempel.
     """
     days_no = _days_in_month(rec)
     meeting_day = rec.meeting_end_dates[0].day if rec.meeting_end_dates else days_no
-    m = days_no - meeting_day + 1  # dagar från och med mötesdagen t.o.m. månadsslut
-    n_days = days_no - m  # dagar före mötesdagen
+    m = days_no - meeting_day  # dagar EFTER mötesdagen (mötesdagen själv hör till N-sidan)
+    n_days = days_no - m  # dagar t.o.m. och med mötesdagen
     if pd.isna(rec.p_end) or n_days <= 0:
         logger.warning(
             "Kan inte lösa Pstart för %d-%02d: saknar Pend eller ogiltig dagfördelning.",
@@ -246,6 +260,19 @@ def _solve_multi_meeting_month(rec: MonthRecord, days_no: int) -> None:
     Det är en uttrycklig APPROXIMATION för mötena MELLAN första och sista
     (flaggas via resolved_via_approximation) — inte en exakt CME-härledning
     — eftersom vi saknar en andra oberoende ekvation för att särskilja dem.
+
+    Dagräkningskonvention (fixad 2026-07-17, se _solve_month för den fullt
+    verifierade härledningen mot CME:s egna publicerade exempel): varje
+    mötesdag räknas till perioden FÖRE det mötet, inte efter. Första
+    segmentet (dagar 1 t.o.m. första mötesdagen) var tidigare `days[0] - 1`
+    (exkluderade mötesdagen) och är nu `days[0]` (inkluderar den). Sista
+    segmentet (dagar efter sista mötet t.o.m. månadsslut) var tidigare
+    `days_no - days[-1] + 1` (inkluderade sista mötesdagen) och är nu
+    `days_no - days[-1]` (exkluderar den). Mellansegmenten (`days[k+1] -
+    days[k]`) hade redan rätt konvention (sista dagen i varje mellansegment
+    är NÄSTA mötesdag, dvs mötesdagen räknas dit) och är oförändrade. Summan
+    av segment_days är fortfarande days_no i båda konventionerna — det är
+    FÖRDELNINGEN mellan segmenten, inte totalen, som ändras.
     """
     if pd.isna(rec.p_start) and pd.isna(rec.p_end):
         logger.warning(
@@ -255,7 +282,7 @@ def _solve_multi_meeting_month(rec: MonthRecord, days_no: int) -> None:
         return
 
     days = [d.day for d in rec.meeting_end_dates]
-    segment_days = [days[0] - 1] + [days[k + 1] - days[k] for k in range(len(days) - 1)] + [days_no - days[-1] + 1]
+    segment_days = [days[0]] + [days[k + 1] - days[k] for k in range(len(days) - 1)] + [days_no - days[-1]]
 
     if pd.isna(rec.p_start):
         # Endast Pend känt: anta att hela Pavg-avvikelsen från Pend härrör

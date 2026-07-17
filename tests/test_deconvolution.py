@@ -22,7 +22,7 @@ import pytest
 
 from fedwatch.config import CME_VALIDATION_TOLERANCE_PP, PROJECT_ROOT
 from fedwatch.deconvolution.engine import _convolve, _local_step_distribution, run_deconvolution
-from fedwatch.deconvolution.pricing import MonthRecord, build_month_frame, month_avg_price, propagate_prices
+from fedwatch.deconvolution.pricing import MonthRecord, _solve_month, build_month_frame, month_avg_price, propagate_prices
 from fedwatch.ingestion import load_all_contracts
 from fedwatch.fomc.dates import get_fomc_meetings
 
@@ -195,7 +195,7 @@ def _days_in(year, month):
 
 def _reconstruct_avg(p_start, p_end, meeting_day, year, month):
     days_no = _days_in(year, month)
-    m = days_no - meeting_day + 1
+    m = days_no - meeting_day  # dagar efter mötesdagen (mötesdagen själv hör till n)
     n = days_no - m
     return (n * p_start + m * p_end) / days_no
 
@@ -203,7 +203,7 @@ def _reconstruct_avg(p_start, p_end, meeting_day, year, month):
 def test_propagate_single_fomc_month_between_no_fomc_months():
     """Jan (icke-FOMC) -> Feb (FOMC, möte 15:e) -> Mar (icke-FOMC)."""
     jan = MonthRecord(year=2027, month=1, p_avg=98.00)
-    feb = MonthRecord(year=2027, month=2, meeting_end_dates=[date(2027, 2, 15)], p_avg=97.80)
+    feb = MonthRecord(year=2027, month=2, meeting_end_dates=[date(2027, 2, 15)], p_avg=97.814286)
     mar = MonthRecord(year=2027, month=3, p_avg=97.60)
 
     months = propagate_prices([jan, feb, mar])
@@ -327,7 +327,7 @@ def test_multi_meeting_month_is_flagged_and_conserves_average():
 
     days_no = _days_in(2027, 2)
     boundaries = [feb_resolved.p_start] + feb_resolved.segment_rates
-    seg_days = [4, 15, days_no - 19]  # dagar 1-4, 5-19, 20-slut
+    seg_days = [5, 15, days_no - 20]  # dagar 1-5, 6-20, 21-slut
     weighted_avg = sum(d * r for d, r in zip(seg_days, boundaries)) / days_no
     assert weighted_avg == pytest.approx(feb.p_avg)
 
@@ -335,6 +335,42 @@ def test_multi_meeting_month_is_flagged_and_conserves_average():
 # ---------------------------------------------------------------------------
 # 4. month_avg_price: förfallna vs aktiva kontrakt
 # ---------------------------------------------------------------------------
+
+def test_solve_month_matches_cme_published_worked_example():
+    """Regressionstest för dagräkningsbugg fixad 2026-07-17: CME:s egen
+    metodologiartikel ("FedWatch Tool Methodology", Arthur Lobão, 2025-01-23)
+    ger ett fullt uträknat exempel för mötet 21 september 2022 (30-dagars-
+    månad): ZQU2=97.4475 (Pavg sept), ZQV2=96.9400 (okt, icke-FOMC-månad så
+    Pend(sept)=Pavg(okt)). CME anger uttryckligen N=21 dagar före mötet
+    (dag 1-21, INKLUSIVE mötesdagen) och M=9 dagar efter (dag 22-30).
+
+    Innan fixen räknade _solve_month mötesdagen till M-sidan istället
+    (m = days_no - meeting_day + 1 = 10, inte 9) — vilket gav Pstart=2.29875
+    och en HELT ANNAN sannolikhetsfördelning (75/25 på 100bp/125bp) än
+    CME:s egna publicerade 10%/90% på 50bp/75bp. Detta test låser fast att
+    vi nu återger CME:s exempel exakt.
+    """
+    rec = MonthRecord(
+        year=2022, month=9,
+        p_avg=97.4475,
+        p_start=float("nan"),
+        p_end=96.9400,
+        meeting_end_dates=[date(2022, 9, 21)],
+        segment_rates=[],
+        resolved_via_approximation=False,
+    )
+    _solve_month(rec)
+
+    # CME anger EFFR(Start)_sept = 2.3350 (dvs Pstart = 100 - 2.3350 = 97.6650).
+    assert rec.p_start == pytest.approx(97.6650, abs=1e-3)
+
+    change_steps = (rec.p_start - rec.p_end) / 25 * 100  # CME: 0.7250/0.25 = 2.9 steg
+    assert change_steps == pytest.approx(2.9, abs=1e-3)
+
+    local = _local_step_distribution(change_steps)
+    assert local[50] == pytest.approx(0.10, abs=1e-3)
+    assert local[75] == pytest.approx(0.90, abs=1e-3)
+
 
 def test_month_avg_price_uses_last_close_before_watch_date_for_active_contract():
     contracts = pd.DataFrame({
