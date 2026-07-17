@@ -6,20 +6,26 @@ name: FedWatch live notify
 # RAPPORT.md for varfor. Kraver TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID som
 # repo-secrets (Settings -> Secrets and variables -> Actions), se README.
 #
-# VIKTIGT (2026-07-16): investing.com svarar 403 Forbidden pa GitHub-hostade
-# runners specifikt (Azure-datacenter-IP-intervall), aven om exakt samma
-# anrop fungerar fint fran en vanlig hemma-/kontors-IP -- bekraftat genom att
-# faktiskt kora denna workflow. Det ar sannolikt IP/datacenter-baserad
-# bot-blockering fran investing.coms sida. Vi har medvetet INTE forsokt runda
-# detta (proxy, IP-rotation etc.) -- det vore detection-evasion-teknik mot en
-# tredje parts uttryckliga bot-skydd, samma linje som vi drog vid CME:s
-# Akamai-block. Schemat (schedule:) ar darfor borttaget -- den HAR kort och
-# gott inte fungerat automatiskt via GitHub Actions med nuvarande datakalla.
-# Den faktiska notisfunktionen kors istallet lokalt via cron
-# (run_notify_cron.sh, se README "Live-notiser"). Denna workflow lamnas kvar
-# med workflow_dispatch for att dokumentera forsoket och kunna testas manuellt
-# -- forvanta dig att den fortfarande misslyckas pa investing.com-steget om
-# den kors fran GitHub-hostade runners.
+# VIKTIGT (2026-07-16, omtestat 2026-07-17): investing.com svarar 403
+# Forbidden pa GitHub-hostade runners specifikt (Azure-datacenter-IP-
+# intervall), aven om exakt samma anrop fungerar fint fran en vanlig hemma-
+# /kontors-IP -- bekraftat genom att faktiskt kora denna workflow TVA
+# ganger. Forsta gangen misstankte vi att det bara var en spoofad
+# Chrome-UA som triggade blockeringen (den orsakade separat ett
+# intermittent block även lokalt, se fedwatch/livesource/investing.py) --
+# men efter att ha bytt till en ärlig, självidentifierande UA (som löste
+# det lokala problemet helt) gav ett omtest via denna workflow FORTFARANDE
+# 403, identiskt fel. Det bekräftar två separata orsaker: en UA-heuristik
+# (åtgärdad) och en IP/datacenter-baserad blockering som är oberoende av
+# UA (INTE åtgärdad, gäller specifikt GitHub-hostade runners). Vi har
+# medvetet INTE forsokt runda det senare (proxy, IP-rotation etc.) -- det
+# vore detection-evasion-teknik mot en tredje parts uttryckliga bot-skydd,
+# samma linje som vi drog vid CME:s Akamai-block. Schemat (schedule:) ar
+# darfor borttaget. Den faktiska notisfunktionen kors istallet lokalt via
+# cron (run_notify_cron.sh, se README "Live-notiser"). Denna workflow
+# lamnas kvar med workflow_dispatch for att dokumentera forsoket och kunna
+# testas manuellt -- forvanta dig att den fortfarande misslyckas pa
+# investing.com-steget om den kors fran GitHub-hostade runners.
 
 "on":
   workflow_dispatch: {}
