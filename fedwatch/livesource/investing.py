@@ -15,6 +15,16 @@ säger inget om investing.coms användarvillkor för automatiserad datahämtning
 Den här modulen gör en enstaka daglig GET (inte massuttag), men det är
 användarens ansvar att bedöma om det är förenligt med deras villkor.
 
+User-Agent (2026-07-17, ändrat efter att en spoofad Chrome-UA plötsligt
+började ge 403 samma dag den fungerat fint tidigare): vi identifierar oss nu
+ÄRLIGT som ett bot med syfte och kontakt (se _USER_AGENT), istället för att
+låtsas vara en webbläsare. Testat sida vid sida samma dag: spoofad
+Chrome-UA -> 403, ärlig bot-UA -> 200 med identisk, giltig data. Troligen
+för att en spoofad UA från en icke-webbläsarklient (fel TLS-fingeravtryck,
+saknade headers en riktig webbläsare skulle skicka) är precis det mönster
+enkla bot-heuristiker letar efter — att öppet ANGE att man är ett bot
+undviker den specifika detektionen, snarare än att kringgå den.
+
 Metodologisk skillnad mot fedwatch.deconvolution.engine: den motorn räknar
 fram sannolikheter från rå ZQ-kontraktsdata (steg 1-7 i CME:s metod).
 investing.com ger oss redan en färdig KUMULATIV fördelning per möte (samma
@@ -47,9 +57,9 @@ logger = logging.getLogger(__name__)
 
 FED_RATE_MONITOR_URL = "https://www.investing.com/central-banks/fed-rate-monitor"
 
-_BROWSER_USER_AGENT = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+_USER_AGENT = (
+    "FedWatchResearchBot/1.0 (+https://github.com/Mguten/fedwatch-vs-polymarket; "
+    "personligt forskningsprojekt, ~1 anrop/dygn)"
 )
 _REQUEST_TIMEOUT = 20
 
@@ -70,11 +80,11 @@ _MEETING_TIME_FORMAT = "%b %d, %Y %I:%M%p ET"
 
 
 def fetch_fed_rate_monitor_html(url: str = FED_RATE_MONITOR_URL) -> str:
-    """Hämtar sidans HTML. Kräver en browser-liknande User-Agent (verifierat
-    manuellt — utan den är risken större för blockering); investing.com
-    krävde ingen ytterligare bot-utmaning utöver detta vid testet 2026-07-16."""
+    """Hämtar sidans HTML med en ÄRLIG, självidentifierande User-Agent (se
+    modulens docstring för varför — en spoofad Chrome-UA gav 403, denna gav
+    200 med identisk data, testat sida vid sida 2026-07-17)."""
     response = requests.get(
-        url, headers={"User-Agent": _BROWSER_USER_AGENT}, timeout=_REQUEST_TIMEOUT,
+        url, headers={"User-Agent": _USER_AGENT}, timeout=_REQUEST_TIMEOUT,
     )
     response.raise_for_status()
     return response.text
