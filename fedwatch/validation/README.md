@@ -5,11 +5,11 @@
 `Data/FedMeeting_<YYYYMMDD>.csv` (en fil per möte, dagliga sannolikheter
 över 25bp-band, ~1 års historik) och `Data/FedMeetingHistory_20260714.csv`
 (samma data konsoliderad) lades till manuellt av användaren. Detta är
-CME:s egna historiska sannolikhets-exports enligt spec — `fedwatch/validation/`
+CME:s egna historiska sannolikhets-exports — `fedwatch/validation/`
 läser dem (`cme_history.py`) och kör det automatiska jämförelsetestet
 (`validate.py`) mot Modul 3:s motor.
 
-Kör via `python run_pipeline.py` (Modul 4-steget), eller direkt:
+Kör via `python scripts/run_pipeline.py` (Modul 4-steget), eller direkt:
 
 ```python
 from fedwatch.ingestion import load_all_contracts

@@ -2,7 +2,7 @@
 till att köra vår egen ZQ-kontraktsbaserade deconvolution (fedwatch.deconvolution)
 för DAGSAKTUELLA sannolikheter.
 
-Bakgrund (se konversationen/RAPPORT.md): CME:s eget FedWatch-verktyg
+Bakgrund: CME:s eget FedWatch-verktyg
 (cmegroup.com) är skyddat av Akamai bot management och går inte att hämta
 programmatiskt. investing.com visar samma typ av tabell (sannolikhet per
 target-rate-intervall, per kommande FOMC-möte) som en vanlig

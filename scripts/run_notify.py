@@ -1,34 +1,35 @@
 """Modul 7: LIVE-notisfunktion — kollar dagligen om något FOMC-mötes ledande
-utfallsnivå (STRATEGY.md §3-4) kvalificerar för entry, och skickar en
+utfallsnivå (docs/STRATEGY.md §3-4) kvalificerar för entry, och skickar en
 Telegram-notis om så är fallet.
 
 Datakälla för p (vår sannolikhet): investing.com/central-banks/fed-rate-monitor
 (fedwatch.livesource.investing) — INTE ZQ-kontraktspipelinen. Det är ett
-medvetet val (se RAPPORT.md/konversationen): ZQ-kontraktsdata är svår att
-få tag på löpande, medan investing.com är en fritt tillgänglig, dagsaktuell
-sida. Se den modulens docstring för den metodologiska skillnaden och
-ToS-reservationen kring att scrapa den.
+medvetet val: ZQ-kontraktsdata är svår att få tag på löpande, medan
+investing.com är en fritt tillgänglig, dagsaktuell sida. Se den modulens
+docstring för den metodologiska skillnaden och ToS-reservationen kring att
+scrapa den.
 
-OBS: detta är en annan datakälla än den som backtestades i STRATEGY.md §8
+OBS: detta är en annan datakälla än den som backtestades i docs/STRATEGY.md §8
 (som använde vår egen ZQ-baserade motor). Siffrorna i den tabellen gäller
-alltså inte nödvändigtvis exakt för den här live-varianten — se den
-kommande valideringen (RAPPORT.md/konversationen) för hur mycket de skiljer
-sig åt.
+alltså inte nödvändigtvis exakt för den här live-varianten.
 
 Miljövariabler som krävs:
     TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID  — se README för hur man skaffar dem.
 Valfria:
-    NOTIFY_THRESHOLD_PCT (default 60.0)   — tröskeln T i STRATEGY.md §4.
-    NOTIFY_WINDOW_DAYS (default 90)       — tidsfönstret i STRATEGY.md §2.
+    NOTIFY_THRESHOLD_PCT (default 60.0)   — tröskeln T i docs/STRATEGY.md §4.
+    NOTIFY_WINDOW_DAYS (default 90)       — tidsfönstret i docs/STRATEGY.md §2.
 
-Användning:
-    python run_notify.py
+Användning (kör från repo-roten):
+    python scripts/run_notify.py
 """
 
 import logging
 import os
 import sys
 from datetime import date
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fedwatch.config import PROJECT_ROOT
 from fedwatch.fomc.dates import get_fomc_meetings

@@ -8,17 +8,24 @@ implementation — inget i `fedwatch/`-paketet kör den här strategin automatis
 
 Handla enskilda utfallsnivåer ("buckets", t.ex. "-25bp") på Polymarkets
 FOMC-mötesmarknader, med FedFunds-motorns `local`-sannolikhet som
-fair-value-signal. Bygger på tre research-fynd (se konversationen för
-underlag):
+fair-value-signal. Bygger på tre research-fynd:
 
 1. Vår motor är bättre kalibrerad än Polymarket nära ett möte (lägre
    Brier-score inom ett 90-dagarsfönster).
-2. Vår motor blir inte nödvändigtvis säker TIDIGARE än Polymarket — edgen
-   kommer inte från att "veta svaret först".
-3. Edgen kommer istället från att vår motor ofta flaggar en nivå som sin
-   ledande gissning INNAN Polymarkets pris hunnit i kapp — vi kan då köpa
-   billigare (snitt 57 öre mot 70 öre för motsvarande position, se
-   kontrollexperimentet i konversationen).
+2. **Reviderat 2026-07-17:** vår motor visar ett litet men mätbart
+   tidsförsprång framför Polymarket — median ~0,5–3,5 dagar beroende på
+   vilken sannolikhetströskel man mäter mot, bekräftat via två oberoende
+   metoder (tröskelpassering vid flera nivåer + korsvis korrelation med
+   toppvärde vid +2 dagars förskjutning). Detta ersätter en tidigare
+   slutsats ("blir inte nödvändigtvis säker TIDIGARE") som byggde på
+   motorn FÖRE dagräkningsfixen samma dag — den buggen adderade brus i
+   just tidsdimensionen och maskerade sannolikt ett förspång som redan
+   fanns.
+3. Detta tidsförsprång är sannolikt själva MEKANISMEN bakom edgen: eftersom
+   vår motor tenderar att flagga en nivå som sin ledande gissning INNAN
+   Polymarkets pris hunnit i kapp, kan vi köpa billigare (snitt 57 öre mot
+   70 öre för motsvarande position, se kontrollexperimentet i
+   konversationshistoriken).
 
 ## 2. Instrument och urval
 

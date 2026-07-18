@@ -1,89 +1,125 @@
-# FedWatch-replikering + Polymarket-jämförelse
+# FedWatch replication vs. Polymarket
 
-Se `fedwatch_project_spec.md` för den fulla specifikationen. Denna fil är en
-snabb karta över vad som är byggt och hur man kör det.
+A from-scratch replication of CME's FedWatch methodology — converting Fed
+funds futures (ZQ contract) prices into market-implied probabilities for
+FOMC rate decisions — built to answer a question CME's own tool doesn't:
+how does that probability compare to an independent market pricing the
+same event? [Polymarket](https://polymarket.com) runs prediction markets
+on FOMC decisions, so this project builds the FedWatch-style engine from
+raw futures data, validates it against CME's own published methodology,
+and compares its output to Polymarket's prices over time.
 
-## Status per modul
+## Key findings
 
-| Modul | Status | Kommentar |
-|---|---|---|
-| 1. Data ingestion | ✅ Klar | `fedwatch/ingestion/`. `Data/` täcker nu samtliga 12 kontraktsmånader (F-Z) sedan Sep–Dec-filerna (U,V,X,Z) lades till. Läser även `.CSV` (versaler) — tre av de nya filerna hade versal filändelse, glob var skiftlägeskänsligt tills det fixades. |
-| 2. FOMC-mötesdatum | ✅ Klar | `fedwatch/fomc/`. Skrapar federalreserve.gov, fallback till `config/fomc_dates.csv`. Faktiska beslut härleds empiriskt ur FRED (DFEDTARU/DFEDTARL), inte en handunderhållen lista. |
-| 3. Deconvolution engine | ✅ Klar, testad | `fedwatch/deconvolution/`. 20 enhetstester, validerat mot CME:s publicerade siffror inom ±0.6pp (tolerans ±2pp). Se docstring i `engine.py` för hur "fler än två utfall" faktiskt löstes (full convolution, inte lokal breddning — den första idén visade sig ge SÄMRE träffsäkerhet mot riktig CME-data). **2026-07-15:** fixade en prispropageringsbugg i `pricing.py` — watch_date:s egen månad felklassades som icke-FOMC så fort ett mötesdatum inom den passerats, vilket gav falska diskontinuiteter kring varje FOMC-beslut och månadsskifte (hittat via Modul 6-jämförelsen mot Polymarket, se den raden). Ett tidigare "FRED-ankare" för att lösa watch-månadens Pstart är helt borttaget till förmån för att bakåtlösningen nu även täcker fönstrets första månad. **2026-07-17:** fixade ett dagräkningsfel i `_solve_month`/`_solve_multi_meeting_month` — mötesdagen räknades felaktigt till perioden EFTER mötet (`m = days_no - meeting_day + 1`) istället för perioden FÖRE (CME:s egen konvention, verifierad mot deras fullt uträknade exempel för 21 sept 2022 i "FedWatch Tool Methodology"-artikeln — vårt gamla `+1` gav en helt annan sannolikhetsfördelning, 75/25 på fel nivåer, mot CME:s korrekta 10/90). Nytt regressionstest (`test_solve_month_matches_cme_published_worked_example`) låser fast CME:s exempel exakt, oberoende av `Data/`. **OBS:** denna fix gjordes EFTER att `Data/` raderats av misstag (se git-historik) — Modul 4:s fulla omvalidering och alla ZQ-baserade backtest-siffror i `STRATEGY.md`/`RAPPORT.md` väntar på att köras om mot den fixade koden när `Data/` återställts. |
-| 4. Validering mot CME | ⚠️ Kräver omkörning | `fedwatch/validation/`. `Data/FedMeeting_*.csv` (CME:s egna historiska sannolikheter, ~1 års historik, 12 möten, 80 107 datapunkter) driver ett riktigt automatiskt jämförelsetest. Senast körda resultat (**12/12 möten ≥99.5% av datapunkterna inom ±2pp**, medelavvikelse 0.01–0.07pp) gäller motorn FÖRE dagräkningsfixen 2026-07-17 (se Modul 3-raden) — måste köras om mot fixad kod så fort `Data/` är återställd lokalt (se `fedwatch/ingestion/README.md`/spec för varifrån den kommer). cmegroup.com blockerar fortfarande programmatisk åtkomst (403) — historiken kom via manuell export. |
-| 5. Polymarket-integration | ✅ Klar | `fedwatch/polymarket/`. clob.polymarket.com + gamma-api.polymarket.com är fritt tillgängliga. Bygger en KANDIDATTABELL (`config/polymarket_fomc_match_review.csv`) som måste granskas för hand (kolumn `confirmed`) innan Modul 6 använder den — 24 rader kvar efter användarens granskning (2 dubbletter borttagna). |
-| 6. Jämförelse & output | ✅ Klar | `fedwatch/comparison/`. Jämför FedFunds-motorns lokala stegfördelning mot Polymarkets priser. **Riktig bugg hittad via denna jämförelse (2026-07-15):** användaren observerade en konstig sannolikhetsdipp i januari 2025/2026-panelerna i en genererad artefakt — spårades till att `build_month_frame` felklassificerade watch_date:s egen kalendermånad som icke-FOMC så fort ett mötesdatum inom månaden passerats, vilket lät den månadens råa pris framåtpropageras in i NÄSTA månads Pstart. Fixad i `fedwatch/deconvolution/pricing.py` (se docstring där + 2 nya regressionstester). Separat, kvarstående och MEDVETET ej fixat fynd: vår `local`-fördelning är alltid exakt binär (två utfall) medan Polymarket prisar in fler — det är CME:s egen metodbegränsning synlig i riktig data, inte en bugg (breddning provades tidigare och gav sämre träffsäkerhet mot CME:s riktiga siffror) — se motivering i `compare.py`. |
-| 7. Live-notiser (Telegram) | ✅ Klar | `fedwatch/notify/`, `fedwatch/livesource/`. Kör `run_notify.py` dagligen (lokalt eller via `.github/workflows/notify.yml`) och skickar en Telegram-notis när ett FOMC-mötes ledande utfallsnivå uppfyller entry-regeln i `STRATEGY.md` §4. **Datakälla för p är investing.com/central-banks/fed-rate-monitor, INTE ZQ-kontraktspipelinen** — cmegroup.com:s eget FedWatch-verktyg är skyddat av Akamai bot management (403, ingen väg runt utan detection-evasion-teknik vi valt att inte bygga), medan investing.com visar samma typ av tabell utan bot-skydd (verifierat 2026-07-16). Se `fedwatch/livesource/investing.py` för hur den kumulativa tabellen konverteras till samma lokala stegfördelning som `engine.py` producerar. Se sektionen "Live-notiser" nedan för uppsättning. |
+Measured over 21 settled FOMC meetings (2023–2026), within a 90-day
+pre-meeting window (see [`docs/STRATEGY.md`](docs/STRATEGY.md) for why 90 days,
+and the full methodology behind every number below):
 
-## Köra pipelinen
+- **Better calibrated.** Lower (better) Brier score than Polymarket in
+  15/21 meetings — about 15% lower on average, 4% lower at the median
+  (the mean is pulled up by one unusually surprising meeting).
+- **Leads in time.** A small but statistically robust lead over
+  Polymarket — a median of roughly 1–3 days depending on the probability
+  threshold used, confirmed by two independent methods (threshold-crossing
+  and cross-correlation, which peaks at a +2-day lag). This lead-time
+  effect is statistically more robust than the calibration difference
+  itself (p < 0.01 across three separate significance tests, vs. a
+  borderline result for calibration) — an asymmetry the writeup explains
+  rather than glosses over.
+- **The likely mechanism:** because our model tends to flag its leading
+  outcome before Polymarket's price fully catches up, it implies a
+  cheaper average entry price for the equivalent position. A control
+  experiment — rerunning the same trading rules using Polymarket's own
+  price as the signal instead — performs almost as well, which is the
+  honest reason a naive backtest of this idea looks "too good to be
+  true": FOMC decisions in this period were unusually well-telegraphed,
+  not necessarily because this model is exceptionally skilled.
+- **A backtest with zero losing meetings is a red flag, not a selling
+  point** — and it's explained, not hidden: it traces to one specific
+  behavior (the position that survives to a meeting's resolution wins
+  21/21 in this sample), while the noisier, real-loss-bearing part of the
+  strategy (positions closed early when a different outcome takes the
+  lead) is exactly where the visible variance is. Details, plus every
+  other caveat (small n, single regime, no transaction costs, no
+  out-of-sample validation) are in [`docs/STRATEGY.md` §7–9](docs/STRATEGY.md).
+
+This is a research project, not investment advice.
+
+## How it works
+
+| Stage | What it does |
+|---|---|
+| **Data ingestion** | Reads raw ZQ (Fed funds futures) contract prices from local CSV files, one per contract month. |
+| **FOMC calendar** | Scrapes meeting dates from federalreserve.gov (with a static CSV fallback); actual decisions are derived from FRED (`DFEDTARU`/`DFEDTARL`), not hand-maintained. |
+| **Deconvolution engine** | The core: decomposes each contract's implied rate into an integer + mantissa step per CME's published methodology, and convolves that forward across the full meeting sequence to get a probability distribution per meeting. Validated against CME's own worked example ([regression-tested exactly](fedwatch/deconvolution/), independent of any external data file). |
+| **CME validation** | Compares engine output against CME's own historical FedWatch probabilities where that data is available, at a pre-declared tolerance. |
+| **Polymarket integration** | Pulls FOMC-related markets from Polymarket's public APIs, builds a candidate match table against FOMC meetings, which is manually reviewed before use (automated question-text matching alone isn't reliable enough to trust blindly). |
+| **Comparison** | Produces a time series of both models' probabilities for every matched meeting/outcome, ready for analysis. |
+| **Live notifications** | Optional: a daily check (local cron, not GitHub Actions — see below) that messages Telegram when a live signal qualifies under the entry rule in `docs/STRATEGY.md`. |
+
+## Quickstart
 
 ```bash
-python run_pipeline.py [YYYY-MM-DD] [--skip-validation]   # watch_date, default idag
-```
+pip install -r requirements.txt
 
-Modul 4 kör ~250 motorkörningar (en per historiskt datum i CME:s export)
-och tar ~30-40 sekunder — hoppa över med `--skip-validation` vid snabb
-iteration. Första körningen genererar även
-`config/polymarket_fomc_match_review.csv` och stannar där för Modul 5/6 —
-granska filen för hand, fyll i `TRUE`/`FALSE` i kolumnen `confirmed`, kör
-sedan skriptet igen för att även få Modul 6:s output i
-`output/fedfunds_vs_polymarket.csv`.
+# Run the full pipeline for a given date (defaults to today)
+python scripts/run_pipeline.py [YYYY-MM-DD] [--skip-validation]
 
-## Tester
+# Run the trading-strategy backtest (see docs/STRATEGY.md for the rules)
+python scripts/run_backtest.py [threshold ...]   # defaults to 50/60/70%
 
-```bash
+# Run the test suite (66 tests, no network access required)
 python -m pytest tests/ -v
 ```
 
-66 tester, ingen nätverksåtkomst krävs (Modul 3/4-testerna använder de
-CSV-fixturer som redan ligger i `config/`/`Data/`; Modul 7:s tester kör mot
-en sparad kopia av investing.com-sidan i `tests/fixtures/`).
+The first pipeline run generates `config/polymarket_fomc_match_review.csv`
+and stops there — review it by hand (fill in `TRUE`/`FALSE` in the
+`confirmed` column), then run again to get the full comparison output in
+`output/fedfunds_vs_polymarket.csv`.
 
-**OBS:** `Data/` (rå ZQ-kontraktsdata + CME:s historiska export) är
-gitignored i det publika repot av licensskäl — Modul 3/4:s tester
-(`test_deconvolution.py`) kräver den mappen lokalt för att gå igenom. Se
-`fedwatch/ingestion/README.md`/spec:en för var kontraktsdatan kommer ifrån
-om du klonar repot och vill köra hela pipelinen själv.
+**Note on data:** `Data/` (raw ZQ contract prices + CME's historical
+export) is gitignored — its redistribution licensing hasn't been checked,
+so it's kept out of this public repo. `tests/` ships with CSV fixtures
+so the test suite runs without it; running the full pipeline yourself
+requires sourcing that contract data separately.
 
-## Live-notiser (Modul 7)
+## Live notifications (optional)
 
-`run_notify.py` kollar dagligen om något FOMC-mötes ledande utfallsnivå
-kvalificerar för entry enligt `STRATEGY.md` §4, och skickar en Telegram-notis
-om så är fallet. Detta är forskning, inte en rekommendation — läs
-`STRATEGY.md` §9 (kända begränsningar) innan du agerar på en notis.
+`scripts/run_notify.py` checks daily whether any FOMC meeting's leading
+outcome qualifies for entry under `docs/STRATEGY.md` §4, and sends a Telegram message
+if so. This reads live data from investing.com rather than the ZQ
+pipeline (see `fedwatch/livesource/investing.py` for why — CME's own
+tool is behind bot protection that isn't practical to get around without
+techniques this project deliberately avoids).
 
-**Skaffa en Telegram-bot:**
-1. Prata med [@BotFather](https://t.me/BotFather) på Telegram, kör `/newbot`
-   och följ instruktionerna — du får en bot-token.
-2. Skicka ett valfritt meddelande till din nya bot, besök sedan
-   `https://api.telegram.org/bot<DIN_TOKEN>/getUpdates` i en webbläsare och
-   leta upp `"chat":{"id": ...}` — det är ditt `chat_id`.
-
-**Schemaläggning: lokal cron, INTE GitHub Actions.** `.github/workflows/notify.yml`
-finns kvar i repot för att dokumentera försöket, men investing.com svarar
-`403 Forbidden` specifikt på GitHub-hostade runners (Azure-datacenter-IP),
-bekräftat genom att faktiskt köra workflowen — samma anrop fungerar fint
-från en vanlig hemma-IP. Snarare än att kringgå det (proxy/IP-rotation —
-detection-evasion mot investing.coms bot-skydd, samma linje vi drog vid
-CME:s Akamai-block) körs notisfunktionen istället lokalt via cron:
+Scheduling is done via **local cron, not GitHub Actions** — investing.com
+returns 403 specifically to GitHub-hosted runners' IP ranges, confirmed by
+actually running the workflow. Rather than working around that with
+proxies or IP rotation, the notifier just runs locally:
 
 ```bash
-cp .env.example .env   # fyll i TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID
+cp .env.example .env   # fill in TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID
 crontab -e
-# lägg till:
-0 8 * * * /sökväg/till/FF_rates/run_notify_cron.sh
+# add:
+0 8 * * * /path/to/FF_rates/scripts/run_notify_cron.sh
 ```
 
-`run_notify_cron.sh` läser `.env` (cron ärver inte din interaktiva miljö)
-och loggar till `output/notify.log`. Kolla loggen för att bekräfta att det
-faktiskt körs (`tail -f output/notify.log`), och `crontab -l` för att se
-schemat.
+`scripts/run_notify_cron.sh` loads `.env` (cron doesn't inherit your
+interactive shell environment) and logs to `output/notify.log`.
 
-Valfria miljövariabler (i `.env` eller exporterade): `NOTIFY_THRESHOLD_PCT`
-(default 60.0, tröskeln T i STRATEGY.md §4) och `NOTIFY_WINDOW_DAYS`
-(default 90).
+To get a bot token: talk to [@BotFather](https://t.me/BotFather) on
+Telegram (`/newbot`), then send your new bot any message and visit
+`https://api.telegram.org/bot<YOUR_TOKEN>/getUpdates` to find your
+`chat_id` in the response.
 
-## Miljö
+## Trading strategy
 
-Paket installeras i den delade venv:n `main` (inget separat virtualenv för
-detta projekt — beslutat med användaren). Se `requirements.txt`.
+The rules used for the backtest and live notifier — entry/exit
+conditions, Kelly-based position sizing, and every known limitation — are
+formalized in [`docs/STRATEGY.md`](docs/STRATEGY.md). Nothing in this codebase
+executes the strategy automatically against real money; it's a
+research/paper-trading rule set, not a broker integration.
+
+## Environment
+
+Standard Python + pandas. See `requirements.txt`.

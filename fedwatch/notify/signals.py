@@ -1,9 +1,9 @@
-"""Implementerar entry-regeln från STRATEGY.md §4 mot LIVE-data (investing.com
+"""Implementerar entry-regeln från docs/STRATEGY.md §4 mot LIVE-data (investing.com
 + Polymarkets aktuella priser) och håller reda på vilka signaler som redan
 notifierats, så samma öppna läge inte spammas dagligen.
 
 Detta är EXAKT samma regel som backtestades och formaliserades i
-STRATEGY.md — se den filen för fullständiga definitioner (§3, §10) och
+docs/STRATEGY.md — se den filen för fullständiga definitioner (§3, §10) och
 kända begränsningar (§9) innan den här signalen används för riktiga trades.
 """
 
@@ -27,7 +27,7 @@ def find_leading_level_signals(
     as_of: date = None,
 ) -> pd.DataFrame:
     """Hittar möten där den LEDANDE nivån (högst p bland handelsbara nivåer,
-    STRATEGY.md §3) uppfyller entry-regeln (§4): p >= threshold_pct OCH p > P.
+    docs/STRATEGY.md §3) uppfyller entry-regeln (§4): p >= threshold_pct OCH p > P.
 
     fedfunds_local: kolumner meeting_date, local_bp_change, probability_pct
     (t.ex. från fedwatch.livesource.investing.local_steps_from_cumulative,
@@ -114,7 +114,7 @@ def filter_new_signals(signals: pd.DataFrame, state: dict, as_of: date = None) -
     """Jämför dagens kvalificerande signaler mot tidigare notifierat state.
 
     Notifierar bara när ett mötes LEDANDE nivå är NY (första gången mötet
-    kvalificerar) eller har BYTTS (övertagen, STRATEGY.md §5a) jämfört med
+    kvalificerar) eller har BYTTS (övertagen, docs/STRATEGY.md §5a) jämfört med
     senast notifierade nivå för samma möte — inte varje dag positionen
     fortsätter kvalificera.
 
@@ -147,7 +147,7 @@ def filter_new_signals(signals: pd.DataFrame, state: dict, as_of: date = None) -
 
 def kelly_fraction(p_pct: float, polymarket_pct: float) -> float:
     """Full-Kelly-andel f* = (p-P)/(1-P) för att köpa en YES-andel till pris P
-    (0-1-skala) när du tror sanna sannolikheten är p. Se STRATEGY.md §6 för
+    (0-1-skala) när du tror sanna sannolikheten är p. Se docs/STRATEGY.md §6 för
     härledning. Entry-regeln (p>P) garanterar f*>0 här, men klipps till 0
     som skydd om funktionen någonsin anropas utanför den regeln."""
     p, P = p_pct / 100, polymarket_pct / 100
@@ -158,7 +158,7 @@ def suggested_stake_sek(
     p_pct: float, polymarket_pct: float, bankroll_sek: float,
     kelly_multiplier: float = 0.5, max_stake_pct: float = 10.0,
 ) -> tuple:
-    """Satsningsförslag enligt STRATEGY.md §6: fraktionerad Kelly (default
+    """Satsningsförslag enligt docs/STRATEGY.md §6: fraktionerad Kelly (default
     halv-Kelly) plus ett hårt tak per trade (default 10% av bankrullen) —
     båda är ETABLERAD RISKPRAXIS, INTE siffror backtestade i det här
     projektet (se §6). Returnerar (stake_sek, full_kelly_fraction).
@@ -183,7 +183,7 @@ def format_signal_message(
         sizing_line = (
             f"\nFörslag på satsning ({kelly_multiplier:.2f}× Kelly, tak {max_stake_pct:.0f}% "
             f"av {bankroll_sek:.0f} kr): *{stake:.0f} kr* (full Kelly hade varit "
-            f"{f_star*100:.1f}% av bankrullen — se STRATEGY.md §6, detta är etablerad "
+            f"{f_star*100:.1f}% av bankrullen — se docs/STRATEGY.md §6, detta är etablerad "
             f"riskpraxis, inte en backtestad regel)"
         )
 
@@ -195,7 +195,7 @@ def format_signal_message(
         f"Polymarket (P): {row['polymarket_probability_pct']:.1f}%\n"
         f"Edge (p−P): {row['edge_pp']:+.1f}pp\n"
         f"{sizing_line}\n\n"
-        f"Regel: STRATEGY.md §4 (p≥tröskel och p>P). Detta är forskning, inte "
-        f"en rekommendation — se STRATEGY.md §9 för kända begränsningar innan "
+        f"Regel: docs/STRATEGY.md §4 (p≥tröskel och p>P). Detta är forskning, inte "
+        f"en rekommendation — se docs/STRATEGY.md §9 för kända begränsningar innan "
         f"du agerar på detta."
     )

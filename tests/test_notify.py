@@ -1,4 +1,4 @@
-"""Tester för fedwatch.notify — entry-signalen från STRATEGY.md §4 tillämpad
+"""Tester för fedwatch.notify — entry-signalen från docs/STRATEGY.md §4 tillämpad
 på live-data, samt state-hanteringen som förhindrar daglig spam för samma
 öppna position."""
 
@@ -61,7 +61,7 @@ def test_leader_below_threshold_is_excluded():
 
 
 def test_leader_without_positive_edge_is_excluded():
-    # p >= threshold men p <= P (inget edge) — ska INTE ge en signal (STRATEGY.md §4.2).
+    # p >= threshold men p <= P (inget edge) — ska INTE ge en signal (docs/STRATEGY.md §4.2).
     meeting_date = TODAY + timedelta(days=30)
     fedfunds = _fedfunds(meeting_date, {0: 30.0, -25: 65.0})
     polymarket = _polymarket(meeting_date, {0: 35.0, -25: 70.0})
@@ -121,7 +121,7 @@ def test_filter_new_signals_same_leader_again_is_not_new():
 
 
 def test_filter_new_signals_overtake_is_new():
-    # Ledande nivå har bytts sedan senaste notisen (STRATEGY.md §5a) — ska
+    # Ledande nivå har bytts sedan senaste notisen (docs/STRATEGY.md §5a) — ska
     # trigga en ny notis trots att mötet redan hade ett notifierat läge.
     meeting_date = TODAY + timedelta(days=30)
     signals = pd.DataFrame([{

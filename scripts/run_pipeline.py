@@ -1,7 +1,7 @@
 """Kör hela fedwatch-pipelinen end-to-end för ett givet watch_date.
 
-Modul 5:s matchningstabell kräver ett manuellt granskningssteg (se spec) —
-kör skriptet en första gång för att generera
+Modul 5:s matchningstabell kräver ett manuellt granskningssteg — kör
+skriptet en första gång för att generera
 config/polymarket_fomc_match_review.csv, granska filen för hand (fyll i
 TRUE/FALSE i kolumnen 'confirmed'), kör sedan igen för att även få ut
 Modul 6:s jämförelsedata.
@@ -10,13 +10,16 @@ Modul 4 (CME-validering) kör ~250 motorkörningar (en per historiskt
 observationsdatum i Data/FedMeeting_*.csv) och tar ~30-40 sekunder.
 Hoppa över med --skip-validation vid snabbare iteration.
 
-Användning:
-    python run_pipeline.py [YYYY-MM-DD] [--skip-validation]
+Användning (kör från repo-roten):
+    python scripts/run_pipeline.py [YYYY-MM-DD] [--skip-validation]
 """
 
 import logging
 import sys
 from datetime import date, datetime
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fedwatch.comparison import build_fedfunds_local_time_series, compare_fedfunds_vs_polymarket
 from fedwatch.config import PROJECT_ROOT

@@ -16,5 +16,5 @@ set +a
 
 {
   echo "=== $(date -Iseconds) ==="
-  "$PYTHON_BIN" run_notify.py
+  "$PYTHON_BIN" scripts/run_notify.py
 } >> "$LOG_FILE" 2>&1

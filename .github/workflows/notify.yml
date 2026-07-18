@@ -2,9 +2,9 @@ name: FedWatch live notify
 
 # Modul 7: kor den LIVA notisfunktionen (run_notify.py). Datakalla for var
 # sannolikhet ar investing.com (fedwatch.livesource.investing), inte
-# ZQ-kontraktspipelinen som resten av repot visar upp -- se run_notify.py och
-# RAPPORT.md for varfor. Kraver TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID som
-# repo-secrets (Settings -> Secrets and variables -> Actions), se README.
+# ZQ-kontraktspipelinen som resten av repot visar upp -- se run_notify.py
+# for varfor. Kraver TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID som repo-secrets
+# (Settings -> Secrets and variables -> Actions), se README.
 #
 # VIKTIGT (2026-07-16, omtestat 2026-07-17): investing.com svarar 403
 # Forbidden pa GitHub-hostade runners specifikt (Azure-datacenter-IP-
@@ -22,7 +22,7 @@ name: FedWatch live notify
 # vore detection-evasion-teknik mot en tredje parts uttryckliga bot-skydd,
 # samma linje som vi drog vid CME:s Akamai-block. Schemat (schedule:) ar
 # darfor borttaget. Den faktiska notisfunktionen kors istallet lokalt via
-# cron (run_notify_cron.sh, se README "Live-notiser"). Denna workflow
+# cron (scripts/run_notify_cron.sh, se README "Live-notiser"). Denna workflow
 # lamnas kvar med workflow_dispatch for att dokumentera forsoket och kunna
 # testas manuellt -- forvanta dig att den fortfarande misslyckas pa
 # investing.com-steget om den kors fran GitHub-hostade runners.
@@ -56,7 +56,7 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python run_notify.py
+        run: python scripts/run_notify.py
 
       - name: Spara notis-state
         if: always()
